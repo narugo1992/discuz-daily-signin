@@ -1,0 +1,43 @@
+name: keepalive
+
+# GitHub disables scheduled workflows in a public repository after 60 days
+# without repository activity, which would silently stop the daily check-in.
+# One commit a week keeps the counter from ever getting close.
+#
+# The commits land on the dedicated `keepalive` branch, an orphan branch whose
+# only content is a timestamp file, so the history of `main` stays clean and
+# nothing here can interfere with the check-in code.
+
+on:
+  schedule:
+    - cron: '19 5 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  touch:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: keepalive
+          fetch-depth: 1
+
+      - name: Commit the current timestamp
+        run: |
+          set -euo pipefail
+          timestamp="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          printf '%s\n' "$timestamp" > timestamp
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add timestamp
+          git commit -m "$timestamp"
+          git push origin HEAD:keepalive
+          echo "- Keepalive commit: $timestamp" >> "$GITHUB_STEP_SUMMARY"

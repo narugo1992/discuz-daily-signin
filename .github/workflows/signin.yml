@@ -1,0 +1,51 @@
+name: daily check-in
+
+on:
+  schedule:
+    # 16:37 UTC is 00:37 in UTC+8, shortly after the forum rolls over to a new
+    # day. A non-round minute is deliberate: the top of the hour is the busiest
+    # slot on the Actions scheduler, so off-peak minutes start closer to time.
+    - cron: '37 16 * * *'
+  workflow_dispatch:
+    inputs:
+      mood:
+        description: 'Force a mood code (blank picks one at random)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Log in and report status without checking in'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: daily-check-in
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check-in:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Check in
+        env:
+          DZ_BASE_URL: ${{ secrets.DZ_BASE_URL }}
+          DZ_USER: ${{ secrets.DZ_USER }}
+          DZ_PASS: ${{ secrets.DZ_PASS }}
+          DZ_QUESTION: ${{ secrets.DZ_QUESTION }}
+          DZ_ANSWER: ${{ secrets.DZ_ANSWER }}
+          DZ_MOOD: ${{ inputs.mood }}
+          DZ_DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: python sign.py
