@@ -30,6 +30,22 @@ Empty is not absent. Actions passes an unset secret through as an empty string, 
 
 The check-in is idempotent by design. `check_in()` fetches the page for its `formhash` anyway, so the already-checked-in marker short-circuits the submission for free. Preserve that: it is what makes a delayed, duplicated, or manually retried run safe, and a repeat submission returns an already-checked-in response rather than an error.
 
+## The randomised slot
+
+`.github/scripts/wait-for-slot.sh` makes the check-in land at a different time each night inside the window set by `WINDOW_START_UTC` and `WINDOW_END_UTC`. It exists because a check-in that fires on the same minute forever is the most obvious sign of a script.
+
+It sleeps until an absolute target instant, not for a random duration. Do not simplify it into `sleep $RANDOM`: the Actions scheduler is late by anywhere from zero to thirty-odd minutes, so a random duration stacked on an unknown delay drifts out of the window, while a fixed target absorbs the delay. Cron fires ten minutes ahead of the window for the same reason, so keep the cron time and the window variables consistent if either changes.
+
+The script is deliberately kept out of the workflow YAML so it can be tested. `NOW_OVERRIDE` injects a fake current time and `DRY_SLEEP=1` prints the plan without sleeping, so the whole decision table can be exercised in seconds:
+
+```bash
+WINDOW_START_UTC=16:15 WINDOW_END_UTC=17:00 DRY_SLEEP=1 \
+  NOW_OVERRIDE=$(date -u -d "$(date -u +%F) 16:30:00" +%s) \
+  .github/scripts/wait-for-slot.sh
+```
+
+Three edge cases are covered and worth preserving: a late start draws from the remaining window rather than collapsing to an edge, a start after the window has closed proceeds immediately because a late check-in still counts while a skipped one does not, and a manual run more than an hour early proceeds immediately rather than holding a runner idle. Scheduled runs wait; manual dispatches do not, unless the `jitter` input is ticked.
+
 ## Verifying a change
 
 `DZ_DRY_RUN=1 python sign.py` logs in and reports status without submitting, which exercises everything except the final post and is the right check to run repeatedly. A full run can only be meaningfully verified once per day, since the second run of any day will correctly report an already-completed check-in. A run that reports already-checked-in still proves that connectivity, login, decoding, and page parsing all work.

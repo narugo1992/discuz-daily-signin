@@ -2,16 +2,22 @@ name: daily check-in
 
 on:
   schedule:
-    # 16:37 UTC is 00:37 in UTC+8, shortly after the forum rolls over to a new
-    # day. A non-round minute is deliberate: the top of the hour is the busiest
-    # slot on the Actions scheduler, so off-peak minutes start closer to time.
-    - cron: '37 16 * * *'
+    # 16:05 UTC, which is 00:05 in UTC+8. This fires ten minutes ahead of the
+    # randomised window below on purpose: the Actions scheduler is routinely a
+    # few minutes to half an hour late, and starting early means the whole
+    # window is still reachable when it is, rather than only the tail of it.
+    - cron: '5 16 * * *'
   workflow_dispatch:
     inputs:
       mood:
         description: 'Force a mood code (blank picks one at random)'
         required: false
         default: ''
+      jitter:
+        description: 'Wait for a random slot in the window instead of running now'
+        type: boolean
+        required: false
+        default: false
       dry_run:
         description: 'Log in and report status without checking in'
         type: boolean
@@ -25,10 +31,17 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # The check-in should land at an unremarkable, different time every day rather
+  # than on the same minute forever. Expressed in UTC; add 8 hours for UTC+8.
+  WINDOW_START_UTC: '16:15'   # 00:15 in UTC+8
+  WINDOW_END_UTC: '17:00'     # 01:00 in UTC+8
+
 jobs:
   check-in:
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    # Generous enough to cover the ten minute lead, the full window, and setup.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
 
@@ -38,6 +51,12 @@ jobs:
           cache: pip
 
       - run: pip install -r requirements.txt
+
+      # Placed after setup so that the request goes out at the chosen instant
+      # rather than a minute or two after it.
+      - name: Wait for a randomised slot
+        if: github.event_name == 'schedule' || inputs.jitter
+        run: .github/scripts/wait-for-slot.sh
 
       - name: Check in
         env:

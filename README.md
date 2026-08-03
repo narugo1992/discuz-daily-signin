@@ -46,9 +46,15 @@ Once the secrets are in place, open the Actions tab, select the `daily check-in`
 
 ## Schedule
 
-The check-in runs at `37 16 * * *`, that is 16:37 UTC, which is 00:37 in UTC+8 shortly after the forum's day rolls over. Adjust the cron expression if the forum uses a different timezone. Note that Actions cron is always UTC and never accounts for daylight saving.
+The check-in does not happen at a fixed minute. Cron fires at `5 16 * * *`, that is 16:05 UTC, and the job then waits until a randomly chosen instant inside a window defined by `WINDOW_START_UTC` and `WINDOW_END_UTC` in the workflow, 16:15 to 17:00 UTC by default. In UTC+8 that means the check-in lands somewhere between 00:15 and 01:00 each night, at a different time every day. Hitting the same minute forever is the most obvious tell that a check-in is scripted, and a random slot costs nothing to arrange.
 
-Two scheduling caveats apply to any repository like this. The Actions scheduler can be several minutes to half an hour late during busy periods, so avoid pinning a run right up against a deadline; the idempotent check-in means an occasional late run is harmless anyway. More importantly, GitHub disables scheduled workflows in a public repository after 60 days without repository activity, which would silently stop the daily run.
+The target is computed as an absolute instant rather than a random sleep duration, which is what makes it robust. The Actions scheduler starts jobs anywhere from on time to half an hour late, so a random duration piled on top of an unknown delay would regularly overshoot the window; sleeping until a fixed target absorbs the delay instead. Cron deliberately fires ten minutes before the window opens so that the whole window remains reachable even when the scheduler is behind. If a late start eats into the window, the target is drawn from whatever remains of it; if the window has closed entirely, the check-in runs immediately, because a late check-in still counts for the day while a skipped one does not.
+
+Adjust the cron expression and the two window variables together if the forum uses a different timezone. Actions cron is always UTC and never accounts for daylight saving. A window that wraps past midnight, such as 23:30 to 00:30, is handled.
+
+Manual dispatches run immediately rather than waiting, which is what you want when testing. Tick the `jitter` input to exercise the waiting path on a real run.
+
+One further scheduling caveat applies to any repository like this: GitHub disables scheduled workflows in a public repository after 60 days without repository activity, which would silently stop the daily run.
 
 The `keepalive` workflow handles that second problem. It commits a timestamp once a week to a dedicated orphan branch named `keepalive`, whose only content is that timestamp file. Keeping the churn off `main` leaves the project history readable while still resetting the inactivity counter.
 
